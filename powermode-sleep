@@ -1,0 +1,4 @@
+#!/bin/sh
+# После пробуждения из сна заново применяем сохранённый режим
+[ "$1" = post ] && systemctl restart powermode.service
+exit 0

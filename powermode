@@ -1,0 +1,42 @@
+#!/bin/sh
+# powermode eco|max|ultra|status
+# eco/max меняют лимиты (нужен root), выбранный режим пишется в /etc/powermode и
+# применяется службой powermode.service при загрузке и после сна.
+# Значения подберите под свой ноутбук (ниже, в блоке case).
+R=/sys/class/powercap/intel-rapl:0
+S=/etc/powermode
+mode=${1:-status}
+GPU=$(command -v nvidia-smi)
+
+case "$mode" in
+  eco)  # безопасный режим
+    cpu_long=45000000;  cpu_short=55000000;  gpu_args="-lgc 300,1500" ;;  # CPU 45/55 Вт, GPU потолок 1500 МГц
+  max)  # без ограничений
+    cpu_long=70000000;  cpu_short=115000000; gpu_args="-rgc" ;;            # CPU 70/115 Вт, GPU без потолка
+  ultra) # снять все наши ограничения (упор в охлаждение и блок питания, а не в настройки)
+    cpu_long=215000000; cpu_short=215000000; gpu_args="-rgc" ;;            # CPU 215/215 Вт (аппаратный пик), GPU без потолка
+  status)
+    echo "mode:  $(cat $S 2>/dev/null || echo '?')"
+    if [ -r $R/constraint_0_power_limit_uw ]; then
+      echo "CPU:   long $(( $(cat $R/constraint_0_power_limit_uw) / 1000000 )) W, short $(( $(cat $R/constraint_1_power_limit_uw) / 1000000 )) W, turbo $([ "$(cat /sys/devices/system/cpu/intel_pstate/no_turbo 2>/dev/null)" = 0 ] && echo on || echo off)"
+    else
+      echo "CPU:   RAPL недоступен"
+    fi
+    [ -n "$GPU" ] && $GPU --query-gpu=clocks.gr,power.draw --format=csv,noheader | sed 's/^/GPU:   /'
+    exit 0 ;;
+  *) echo "usage: powermode eco|max|ultra|status"; exit 1 ;;
+esac
+
+[ "$(id -u)" = 0 ] || { echo "нужен sudo"; exit 1; }
+if [ -w $R/constraint_0_power_limit_uw ]; then
+  echo $cpu_long  > $R/constraint_0_power_limit_uw
+  echo $cpu_short > $R/constraint_1_power_limit_uw
+else
+  echo "предупреждение: Intel RAPL недоступен, лимит CPU не изменён" >&2
+fi
+if [ -n "$GPU" ]; then
+  $GPU -pm 1 >/dev/null 2>&1
+  $GPU $gpu_args >/dev/null || echo "предупреждение: не удалось изменить частоту GPU" >&2
+fi
+echo "$mode" > $S
+echo "режим: $mode"

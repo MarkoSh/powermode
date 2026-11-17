@@ -1,0 +1,11 @@
+[Unit]
+Description=Apply saved powermode (CPU/GPU power limits)
+After=nvidia-persistenced.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c '/usr/local/bin/powermode "$(cat /etc/powermode 2>/dev/null || echo eco)"'
+
+[Install]
+WantedBy=multi-user.target
